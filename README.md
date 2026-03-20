@@ -38,27 +38,33 @@ SignalFrame is a Chrome extension prototype that watches YouTube videos and Shor
 
 ## Setup
 
-### 1) Backend setup
+### 1) Create and activate .venv
 
 From workspace root:
 
 Windows PowerShell:
 
-c:/Users/User/Documents/repos/AI-detector/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
 macOS/Linux:
 
-python3 -m pip install -r backend/requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+
+### 2) Backend setup
+
+From workspace root:
+
+Windows PowerShell/macOS/Linux:
+
+python -m pip install -r backend/requirements.txt
 
 Run backend:
 
-Windows PowerShell:
+Windows PowerShell/macOS/Linux:
 
-c:/Users/User/Documents/repos/AI-detector/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
-
-macOS/Linux:
-
-python3 -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
 
 Optional provider-based explanation generation:
 
@@ -70,7 +76,7 @@ Optional provider-based explanation generation:
   - groq: use Groq only, fallback local if key missing/failure
   - local: always local explanation text
 
-### 2) Extension setup
+### 3) Extension setup
 
 From workspace root:
 
@@ -80,7 +86,7 @@ npm run build
 
 Build output appears in extension/dist.
 
-### 3) Load extension in Chrome (Developer Mode)
+### 4) Load extension in Chrome (Developer Mode)
 
 - Open chrome://extensions
 - Enable Developer mode
@@ -137,13 +143,9 @@ Analyze response payload:
 
 Run backend tests:
 
-Windows PowerShell:
+Windows PowerShell/macOS/Linux:
 
-c:/Users/User/Documents/repos/AI-detector/.venv/Scripts/python.exe -m pytest backend/tests -q
-
-macOS/Linux:
-
-python3 -m pytest backend/tests -q
+python -m pytest backend/tests -q
 
 ## Debugging tips
 
