@@ -1,34 +1,44 @@
 # SignalFrame
 
-SignalFrame is a Chrome extension prototype that watches YouTube videos and Shorts and shows a small assistive warning only when content appears likely AI-generated at high confidence.
+SignalFrame is a Chrome extension plus FastAPI backend that analyzes social video posts and labels them as either AI-generated or not AI-generated.
 
-## MVP scope
+The extension supports:
+- YouTube
+- Facebook
+- X/Twitter
+- TikTok
+- Instagram
 
-- Chrome only
-- YouTube watch pages and Shorts only
-- Explicit user opt-in (extension disabled by default)
-- Local-first signals with minimal backend payload
-- Warning icon appears only for high-confidence likely AI-generated outcomes
-- No visible UI for no-warning or unable-to-verify outcomes
+## Current behavior
+
+- Floating SF icon appears during checks and updates with result state.
+- Expanded panel shows:
+  - Decision (`ai_generated` or `not_ai_generated`)
+  - Confidence (`low`/`medium`/`high`) only for `ai_generated`
+  - Plain-language reason
+  - Retry button (in expanded panel)
+- Retry triggers a fresh backend request (cache bypass) and re-queries Groq when configured.
+- Frame capture is passive and non-intrusive: it samples frames while users naturally watch, then sends up to 4 distributed samples from watch history.
 
 ## Architecture overview
 
 - Extension layer
-  - Content script observes supported YouTube pages and collects metadata plus optional lightweight visual signals.
-  - When feasible and allowed by browser/video policies, it samples a small number of video frames.
-  - Background service worker calls backend analysis API with debounce and caching.
-  - React UI renders a compact warning icon and expandable panel with confidence and reason.
-  - Popup provides settings for global enable and per-site enable.
+  - Content script detects supported pages, collects metadata, and gathers passive visual samples.
+  - Background service worker handles API calls, retries/timeouts, per-tab request cancellation, and response caching.
+  - Popup UI controls global enable and per-site toggles.
+  - Widget UI renders loading, decision tone, confidence, reason, and manual Retry.
 
 - Backend layer
-  - FastAPI API validates input and applies a hybrid detector that combines metadata and visual-frame heuristics.
-  - Tri-state output: no_warning, likely_ai_generated, unable_to_verify.
-  - Reason text is assistive, not authoritative.
+  - FastAPI validates request schema and serves:
+    - `POST /api/v1/analyze`
+    - `GET /api/v1/health`
+  - Groq is used as the final decision maker when configured.
+  - Local detector acts as fallback when provider is unavailable.
 
 ## Repository layout
 
 - extension: Chrome extension source and build output
-- backend: FastAPI service and tests
+- backend: FastAPI app, detector logic, and tests
 
 ## Prerequisites
 
@@ -44,124 +54,101 @@ From workspace root:
 
 Windows PowerShell:
 
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
 
 macOS/Linux:
 
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
 
 ### 2) Backend setup
 
 From workspace root:
 
-Windows PowerShell/macOS/Linux:
-
+```bash
 python -m pip install -r backend/requirements.txt
+```
 
 Run backend:
 
-Windows PowerShell/macOS/Linux:
-
+```bash
 python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+```
 
-Optional provider-based explanation generation:
-
+Optional provider config:
 - Copy [backend/.env.example](backend/.env.example) to [backend/.env](backend/.env)
-- Configure key:
-  - GROQ_API_KEY
-- Choose provider mode with EXPLANATION_PROVIDER:
-  - auto: prefers Groq, then local fallback
-  - groq: use Groq only, fallback local if key missing/failure
-  - local: always local explanation text
+- Set `GROQ_API_KEY`
+- Optionally set:
+  - `EXPLANATION_PROVIDER` (`auto`, `groq`, `local`)
+  - `GROQ_MODEL`
 
 ### 3) Extension setup
 
 From workspace root:
 
+```bash
 cd extension
 npm install
 npm run build
-
-Build output appears in extension/dist.
+```
 
 ### 4) Load extension in Chrome (Developer Mode)
 
-- Open chrome://extensions
+- Open `chrome://extensions`
 - Enable Developer mode
 - Click Load unpacked
-- Select extension/dist
-- Open extension details and enable Allow in Incognito if you want incognito support
+- Select `extension/dist`
 
-## Usage
+## API contract
 
-- Open extension popup and enable SignalFrame.
-- Open a YouTube video or Shorts page.
-- If high-confidence AI signals are detected, a small SF icon appears.
-- Click the icon to view confidence level and concise reason.
+`POST /api/v1/analyze`
 
-## API
+Request fields:
+- `site`: `youtube|facebook|x|tiktok|instagram`
+- `pageType`: `video|short`
+- `videoId`: 3-32 chars
+- `title`: max 220 chars
+- `channelName`: max 100 chars
+- `urlHash`: 32-128 chars
+- `visualSignals` (optional)
+  - `frameSamples`: max 4
+  - `videoWidth`, `videoHeight`, `durationSec`, `playbackRate`
+  - optional `videoSrcUrl`, `videoStreamProbeBase64`, `videoStreamMimeType`, `videoStreamNote`
 
-- POST /api/v1/analyze
-- GET /api/v1/health
-
-Analyze request payload:
-
-- site: youtube
-- pageType: video or short
-- videoId: YouTube id
-- title: page title snippet
-- channelName: channel snippet
-- urlHash: hashed canonical URL
-- visualSignals (optional): frame samples and lightweight video metadata
-
-Analyze response payload:
-
-- decision: no_warning, likely_ai_generated, unable_to_verify
-- confidence: low, medium, high
-- reason: assistive explanation
-- ttlSeconds: client-side cache TTL
-
-## Security and privacy notes
-
-- Minimal payload by design: no raw frames and no full browsing history.
-- URL is sent as a hash instead of raw URL.
-- No account identifiers are required.
-- Backend input is validated with schema constraints.
-- Provider API keys are read from environment variables and should never be hard-coded.
-- Frame sampling is best-effort only and respects browser restrictions such as cross-origin/DRM protections.
-
-## Performance notes
-
-- Debounced analysis in content script
-- Signature dedupe in content script
-- TTL-based response caching in service worker
-- Backend timeout target tuned for sub-1.5 second UX
+Response fields:
+- `decision`: `ai_generated|not_ai_generated`
+- `confidence`: `low|medium|high|null`
+- `reason`: user-facing explanation
+- `ttlSeconds`: cache TTL for client
 
 ## Testing
 
 Run backend tests:
 
-Windows PowerShell/macOS/Linux:
-
+```bash
 python -m pytest backend/tests -q
+```
+
+Run Groq prompt benchmark cases:
+
+```bash
+python backend/tests/run_groq_prompt_cases.py
+```
 
 ## Debugging tips
 
-- If no warning appears, verify popup setting is enabled.
-- Check backend is reachable at http://localhost:8000.
-- Inspect service worker logs in Chrome extension developer tools.
-- Confirm page is on supported YouTube watch or Shorts URL.
+- Confirm backend is reachable at `http://localhost:8000`.
+- Check popup toggles for global and per-site enablement.
+- Open extension service worker logs from Chrome extension developer tools.
+- If analysis appears stale, use Retry from the expanded widget panel.
 
 ## Known limitations
 
-- Detector currently uses metadata heuristics and can produce false negatives/positives.
-- No advanced frame forensics in MVP.
-- Only YouTube supported in this version.
-
-## Contribution
-
-- Keep modules focused and small.
-- Maintain strict schema contracts between extension and backend.
-- Add tests for detector rule updates before changing thresholds.
+- Accuracy depends on available visual evidence and provider behavior.
+- Some sites/videos restrict frame reads due to CORS/DRM policies.
+- Passive sampling improves user experience but may need watch time before broad timeline coverage is available.
